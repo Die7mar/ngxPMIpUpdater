@@ -1,0 +1,26 @@
+services:
+  ngx-pm-ip-updater:
+    build:
+      context: ./ngxPMIpUpdater
+      dockerfile: Dockerfile
+    container_name: ngx-pm-ip-updater
+    restart: unless-stopped
+    environment:
+      - AppSettings__IntervalMinutes=${INTERVAL_MINUTES}
+
+      # Domains
+      - AppSettings__Domains__0=${DOMAIN_0}
+      - AppSettings__Domains__1=${DOMAIN_1}
+      - AppSettings__Domains__2=${DOMAIN_2}
+
+      # Statische IP-Blöcke
+      - AppSettings__StaticIpBlocks__0=${STATIC_IP_0}
+      - AppSettings__StaticIpBlocks__1=${STATIC_IP_1}
+      - AppSettings__StaticIpBlocks__2=${STATIC_IP_2}
+
+      # NPM Verbindung
+      - AppSettings__Npm__BaseUrl=${NPM_BASE_URL}
+      - AppSettings__Npm__ApiToken=${NPM_API_TOKEN}
+      - AppSettings__Npm__Email=${NPM_EMAIL}
+      - AppSettings__Npm__Password=${NPM_PASSWORD}
+      - AppSettings__Npm__AccessListId=${NPM_ACCESS_LIST_ID}

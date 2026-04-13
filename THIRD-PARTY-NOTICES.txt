@@ -1,0 +1,111 @@
+THIRD-PARTY NOTICES
+===================
+
+ngxPMIpUpdater uses the following third-party NuGet packages.
+
+-------------------------------------------------------------------------------
+
+1. MICROSOFT PACKAGES (MIT License – .NET Foundation)
+------------------------------------------------------
+
+All Microsoft.Extensions.* and System.* packages are released under the
+MIT License by the .NET Foundation.
+
+Source repositories:
+  - https://github.com/dotnet/runtime
+  - https://github.com/dotnet/extensions
+
+Direct dependencies:
+  - Microsoft.Extensions.Hosting                          10.0.2
+  - Microsoft.Extensions.Http                             10.0.5
+
+Transitive dependencies:
+  - Microsoft.Extensions.Configuration                    10.0.5
+  - Microsoft.Extensions.Configuration.Abstractions       10.0.5
+  - Microsoft.Extensions.Configuration.Binder             10.0.5
+  - Microsoft.Extensions.Configuration.CommandLine        10.0.2
+  - Microsoft.Extensions.Configuration.EnvironmentVariables  10.0.2
+  - Microsoft.Extensions.Configuration.FileExtensions     10.0.2
+  - Microsoft.Extensions.Configuration.Json               10.0.2
+  - Microsoft.Extensions.Configuration.UserSecrets        10.0.2
+  - Microsoft.Extensions.DependencyInjection               10.0.5
+  - Microsoft.Extensions.DependencyInjection.Abstractions  10.0.5
+  - Microsoft.Extensions.DependencyModel                   10.0.0
+  - Microsoft.Extensions.Diagnostics                       10.0.5
+  - Microsoft.Extensions.Diagnostics.Abstractions          10.0.5
+  - Microsoft.Extensions.FileProviders.Abstractions        10.0.2
+  - Microsoft.Extensions.FileProviders.Physical            10.0.2
+  - Microsoft.Extensions.FileSystemGlobbing                10.0.2
+  - Microsoft.Extensions.Hosting.Abstractions              10.0.2
+  - Microsoft.Extensions.Logging                           10.0.5
+  - Microsoft.Extensions.Logging.Abstractions              10.0.5
+  - Microsoft.Extensions.Logging.Configuration             10.0.2
+  - Microsoft.Extensions.Logging.Console                   10.0.2
+  - Microsoft.Extensions.Logging.Debug                     10.0.2
+  - Microsoft.Extensions.Logging.EventLog                  10.0.2
+  - Microsoft.Extensions.Logging.EventSource               10.0.2
+  - Microsoft.Extensions.Options                           10.0.5
+  - Microsoft.Extensions.Options.ConfigurationExtensions   10.0.5
+  - Microsoft.Extensions.Primitives                        10.0.5
+  - System.Diagnostics.EventLog                            10.0.2
+
+MIT License (Microsoft / .NET Foundation)
+
+  Copyright (c) .NET Foundation and Contributors
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+2. SERILOG PACKAGES (Apache License 2.0)
+-----------------------------------------
+
+Source repository: https://github.com/serilog
+
+Direct dependencies:
+  - Serilog.Extensions.Hosting      10.0.0
+  - Serilog.Settings.Configuration  10.0.0
+  - Serilog.Sinks.Console           6.1.1
+
+Transitive dependencies:
+  - Serilog                         4.3.0
+  - Serilog.Extensions.Logging      10.0.0
+
+Apache License
+Version 2.0, January 2004
+https://www.apache.org/licenses/
+
+  Copyright (c) Serilog Contributors
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      https://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+-------------------------------------------------------------------------------
+
+SPDX-License-Identifiers used: MIT, Apache-2.0
+NuGet license info: https://www.nuget.org/packages/<PackageName> → "License"

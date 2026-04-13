@@ -1,0 +1,14 @@
+# Secrets – niemals committen!
+.env
+
+# Build-Artefakte
+**/bin/
+**/obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+
+err.txt
+prog.txt
