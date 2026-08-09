@@ -10,6 +10,24 @@ public class AppSettings
     /// </summary>
     public List<string> StaticIpBlocks { get; set; } = [];
     public int IntervalMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Allows "0.0.0.0/0" / "::/0" in <see cref="StaticIpBlocks"/>, which grants access to the entire
+    /// internet. Off by default – such an entry is almost always a configuration mistake.
+    /// </summary>
+    public bool AllowOpenBlocks { get; set; }
+
+    /// <summary>
+    /// Where the last successfully resolved IP per domain is persisted, so a container restart does not
+    /// lose the protection against writing a reduced access list during a DNS outage.
+    /// </summary>
+    public string StateFilePath { get; set; } = "/data/last-known.json";
+
+    /// <summary>
+    /// Also turn AAAA records into allow rules (as /128). Off by default: many home connections rotate
+    /// their IPv6 interface ID via privacy extensions, which makes a /128 rule go stale quickly.
+    /// </summary>
+    public bool ResolveIPv6 { get; set; }
 }
 
 public class NpmSettings
@@ -27,6 +45,16 @@ public class NpmSettings
 
     /// <summary>Password for login-based auth (NPM older than v2.13).</summary>
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Path to a file holding the API token, e.g. a Docker secret at /run/secrets/npm_api_token.
+    /// Preferred over <see cref="ApiToken"/>: environment variables are readable through
+    /// "docker inspect" and /proc/&lt;pid&gt;/environ. Overrides <see cref="ApiToken"/> when set.
+    /// </summary>
+    public string? ApiTokenFile { get; set; }
+
+    /// <summary>Path to a file holding the login password. Overrides <see cref="Password"/> when set.</summary>
+    public string? PasswordFile { get; set; }
 
     public int AccessListId { get; set; }
 }

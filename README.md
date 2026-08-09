@@ -14,14 +14,41 @@ Ein .NET Worker Service, der stündlich DNS-Domains auflöst, die ermittelten IP
               (alte Einträge raus, neue rein)
 ```
 
-Der Dienst läuft als endlose Schleife und wiederholt den Vorgang alle `IntervalMinutes` Minuten.  
-Werden **keine** IPs aufgelöst und keine statischen Blöcke konfiguriert, wird das Update übersprungen – so kann sich kein Nutzer selbst aussperren.
+Der Dienst läuft als endlose Schleife und wiederholt den Vorgang alle `IntervalMinutes` Minuten.
+
+### Schutzmechanismen
+
+Weil der Dienst die Zugangskontrolle eines Reverse Proxy umschreibt, gilt durchgehend **fail closed** – im
+Zweifel bleibt die Access List unangetastet, statt eine unvollständige Liste zu schreiben:
+
+- **Basic-Auth-Benutzer bleiben erhalten.** Beim Update werden nur die `clients` der Access List ersetzt.
+  Das Feld `items` wird bewusst nicht mitgesendet, weil NPM dabei alle Auth-Benutzer löschen würde.
+- **Kein Aussperren bei DNS-Ausfall.** Die letzten erfolgreich aufgelösten IPs werden pro Domain in
+  `/data/last-known.json` gespeichert. Löst eine Domain nicht auf, wird der letzte gute Wert verwendet.
+  Gibt es auch keinen gespeicherten Wert, wird der Zyklus **abgebrochen** – die Access List behält ihren
+  Stand, und der nächste Versuch folgt schon nach 5 Minuten statt nach dem vollen Intervall.
+- **Ungültige Einträge werden verworfen, nicht durchgereicht.** Adressen und CIDR-Blöcke werden geprüft und
+  normalisiert (inkl. Leerzeichen und gesetzter Host-Bits). Ein fehlerhafter Eintrag wird geloggt und
+  übersprungen, statt das gesamte Update scheitern zu lassen.
+- **`0.0.0.0/0` wird abgelehnt**, da es den Proxy für das gesamte Internet öffnen würde – außer
+  `AllowOpenBlocks` ist explizit auf `true` gesetzt.
+- **Unplausible DNS-Antworten werden gefiltert:** `0.0.0.0` (typisch für abgelaufene DynDNS-Hostnamen),
+  Loopback, Link-Local, Broadcast und Multicast werden nie zur `allow`-Regel.
+
+> **Vertrauensmodell:** Wer die Kontrolle über eine konfigurierte Domain erlangt – etwa weil ein
+> DynDNS-Name abgelaufen und neu registriert wurde – erhält damit automatisch Zugriff. Nur Domains
+> eintragen, die dauerhaft unter eigener Kontrolle stehen.
 
 ---
 
 ## Konfiguration
 
-Alle Einstellungen befinden sich in `appsettings.json` (oder als Umgebungsvariablen für Docker):
+Konfiguriert wird über `appsettings.json`, Umgebungsvariablen (Docker) oder User-Secrets.
+Fehlt etwas Wesentliches, **bricht der Start sofort mit einer klaren Meldung ab** statt erst im ersten Zyklus.
+
+> **Credentials gehören nicht in `appsettings.json`.** Die versionierte Datei enthält deshalb keine
+> Zugangsdaten mehr. Token und Passwort kommen über Umgebungsvariablen, besser noch über
+> Secret-Files (siehe unten).
 
 ```json
 {
@@ -40,28 +67,78 @@ Alle Einstellungen befinden sich in `appsettings.json` (oder als Umgebungsvariab
 
     "Npm": {
       "BaseUrl": "http://192.168.1.10:81",
-
-      "ApiToken": "dein-langer-api-token-aus-dem-npm-ui",
-
-      "Email": "admin@example.com",
-      "Password": "geheimesPasswort",
-
       "AccessListId": 1
     }
   }
 }
 ```
 
+### Listen als eine Variable
+
+`Domains` und `StaticIpBlocks` nehmen beliebig viele Einträge, mit **Komma oder Semikolon** getrennt.
+Für Docker genügt damit eine Variable pro Liste – kein Abzählen von Index-Slots:
+
+```bash
+DOMAINS=mein-haus.dyndns.org,buero.example.com,werkstatt.dyndns.org
+STATIC_IPS=192.168.1.0/24,10.0.0.5/32
+```
+
+Ein JSON-Array in `appsettings.json` funktioniert unverändert weiter, und ein Array-Eintrag darf selbst
+eine Komma-Liste sein – beides landet in derselben flachen Liste.
+
+> ⚠️ **Achtung bei Arrays und Umgebungsvariablen:** `AppSettings__Domains__0` überschreibt nur *Index 0*.
+> Stehen in `appsettings.json` mehrere Domains, bleiben die höheren Indizes erhalten und werden weiterhin
+> freigeschaltet. Die ausgelieferte `appsettings.json` hat die Listen darum absichtlich leer.
+
 | Feld | Beschreibung |
 |------|-------------|
 | `IntervalMinutes` | Wie oft (in Minuten) die IPs aktualisiert werden (Standard: 60) |
-| `Domains` | Liste von Hostnamen/DynDNS-Domains – werden per DNS aufgelöst |
-| `StaticIpBlocks` | Feste IP-Adressen oder CIDR-Blöcke (z. B. internes Netz), die immer erlaubt bleiben |
+| `Domains` | Hostnamen/DynDNS-Domains – werden per DNS aufgelöst. JSON-Array oder Komma-Liste |
+| `StaticIpBlocks` | Feste IP-Adressen oder CIDR-Blöcke (z. B. internes Netz), die immer erlaubt bleiben. JSON-Array oder Komma-Liste |
+| `AllowOpenBlocks` | Erlaubt `0.0.0.0/0` in `StaticIpBlocks` (Standard: `false`) – öffnet den Proxy fürs ganze Internet |
+| `StateFilePath` | Ablage der letzten erfolgreich aufgelösten IPs (Standard: `/data/last-known.json`) |
+| `ResolveIPv6` | AAAA-Records ebenfalls als `/128` eintragen (Standard: `false`) |
 | `Npm.BaseUrl` | URL des Nginx Proxy Manager (inkl. Port, ohne `/api`) |
 | `Npm.ApiToken` | **Empfohlen (NPM ≥ v2.13):** Langlebiger API-Token, erstellt im NPM UI unter *Access → API Tokens*. Wenn gesetzt, werden Email/Password ignoriert. |
+| `Npm.ApiTokenFile` | Pfad zu einer Datei mit dem Token, z. B. ein Docker-Secret unter `/run/secrets/npm_api_token`. Überschreibt `ApiToken`. |
 | `Npm.Email` | Login-E-Mail – nur wenn kein ApiToken gesetzt (ältere NPM-Versionen) |
 | `Npm.Password` | Passwort – nur wenn kein ApiToken gesetzt (ältere NPM-Versionen) |
+| `Npm.PasswordFile` | Pfad zu einer Datei mit dem Passwort. Überschreibt `Password`. |
 | `Npm.AccessListId` | ID der zu aktualisierenden NPM Access List |
+
+### Secrets sicher übergeben
+
+Umgebungsvariablen sind über `docker inspect` und `/proc/<pid>/environ` für jeden Prozess im Container
+lesbar. Für Token und Passwort gibt es darum die `*File`-Varianten nach Docker-Secrets-Konvention:
+
+```yaml
+services:
+  ngx-pm-ip-updater:
+    environment:
+      - AppSettings__Npm__ApiTokenFile=/run/secrets/npm_api_token
+    secrets:
+      - npm_api_token
+
+secrets:
+  npm_api_token:
+    file: ./secrets/npm_api_token
+```
+
+Zeigt ein `*File`-Pfad auf eine fehlende oder leere Datei, **bricht der Start ab** – ein stillschweigend
+leeres Secret würde sonst unbemerkt auf einen anderen Auth-Pfad zurückfallen.
+
+Liegt das Secret trotzdem in der `.env`, sollte die Datei nur dir gehören:
+
+```bash
+chmod 600 .env
+```
+
+### Verbindung zum NPM verschlüsseln
+
+`http://…:81` überträgt API-Token bzw. Admin-Passwort **im Klartext**. Innerhalb eines privaten
+Docker-Netzes (`http://nginx-proxy-manager:81`) ist das vertretbar, weil der Verkehr den Host nicht
+verlässt. Das häufig kopierte Beispiel `http://192.168.1.10:81` geht dagegen über das LAN – dort besser
+den Container ins gleiche Docker-Netz wie NPM hängen oder HTTPS verwenden.
 
 ### Access List ID ermitteln
 
@@ -85,15 +162,19 @@ docker build -t ngx-pm-ip-updater .
 docker run -d \
   --name ngx-pm-ip-updater \
   --restart unless-stopped \
+  -v ngx-pm-ip-updater-state:/data \
   -e AppSettings__Npm__BaseUrl=http://192.168.1.10:81 \
-  -e AppSettings__Npm__Email=admin@example.com \
-  -e AppSettings__Npm__Password=geheimesPasswort \
+  -e AppSettings__Npm__ApiToken=dein-api-token \
   -e AppSettings__Npm__AccessListId=1 \
+  -e AppSettings__Domains__0=mein-haus.dyndns.org,buero.example.com \
   ngx-pm-ip-updater
 ```
 
 > Umgebungsvariablen überschreiben Werte aus `appsettings.json`.  
 > Doppelter Unterstrich `__` entspricht einem Doppelpunkt `:` in der Konfigurationshierarchie.
+
+Der Container läuft als **non-root** (UID 1654). Das Volume auf `/data` ist kein Muss, aber ohne es
+verliert der Aussperr-Schutz bei jedem Restart seine Historie – der Dienst warnt dann einmalig im Log.
 
 ### Mit docker-compose
 
@@ -104,10 +185,15 @@ services:
     restart: unless-stopped
     environment:
       - AppSettings__Npm__BaseUrl=http://nginx-proxy-manager:81
-      - AppSettings__Npm__Email=admin@example.com
-      - AppSettings__Npm__Password=geheimesPasswort
+      - AppSettings__Npm__ApiToken=dein-api-token
       - AppSettings__Npm__AccessListId=1
       - AppSettings__IntervalMinutes=60
+    volumes:
+      # Bewahrt die letzten guten IPs über einen Restart hinweg (Aussperr-Schutz)
+      - ngx-pm-ip-updater-state:/data
+
+volumes:
+  ngx-pm-ip-updater-state:
 ```
 
 ---
@@ -129,8 +215,13 @@ ngxPMIpUpdater/
 │   ├── AppSettings.cs       # Konfigurationsmodell
 │   └── NpmModels.cs         # NPM API Datenmodelle (Token, AccessList, Client)
 ├── Services/
-│   ├── DnsResolverService.cs  # DNS-Auflösung → IPv4 → CIDR /32
-│   └── NpmApiService.cs       # NPM REST API (Login, GET/PUT Access List)
+│   ├── AppSettingsValidator.cs # Startup-Validierung (fail fast)
+│   ├── ConfigList.cs           # Komma-Listen und JSON-Arrays vereinheitlichen
+│   ├── DnsResolverService.cs   # DNS-Auflösung → CIDR
+│   ├── IpValidator.cs          # Prüft/normalisiert alles, was zur allow-Regel wird
+│   ├── LastKnownIpStore.cs     # Letzte gute IPs pro Domain (Aussperr-Schutz)
+│   ├── NpmApiService.cs        # NPM REST API (Login, GET/PUT Access List)
+│   └── SecretFiles.cs          # Docker-Secrets: *File-Einstellungen einlesen
 ├── Worker.cs                # Hintergrund-Worker-Loop
 ├── Program.cs               # Dependency Injection Setup
 ├── appsettings.json         # Konfigurationsdatei
@@ -142,14 +233,20 @@ ngxPMIpUpdater/
 ## Logs (Beispiel)
 
 ```
-info: ngxPMIpUpdater.Worker[0]
-      ngxPMIpUpdater started. Interval: 60 min, Domains: mein-haus.dyndns.org
-info: ngxPMIpUpdater.Worker[0]
-      Starting IP update cycle at 13.04.2026 17:42:00 +00:00
-info: ngxPMIpUpdater.Services.NpmApiService[0]
-      Fetched access list 'Meine Liste' (ID 1) with 2 client(s).
-info: ngxPMIpUpdater.Services.NpmApiService[0]
-      Access list 'Meine Liste' updated with 3 IP(s): 1.2.3.4/32, 192.168.1.0/24, 10.0.0.5/32
-info: ngxPMIpUpdater.Worker[0]
-      Update cycle completed. 3 IPs written (1 dynamic, 2 static).
+[17:42:00 INF] ngxPMIpUpdater.Worker - ngxPMIpUpdater started. Interval: 60 min, Domains: mein-haus.dyndns.org
+[17:42:00 INF] ngxPMIpUpdater.Worker - Starting IP update cycle at 13.04.2026 17:42:00 +00:00
+[17:42:00 INF] ngxPMIpUpdater.Services.NpmApiService - Using static NPM API token for authentication.
+[17:42:00 INF] ngxPMIpUpdater.Services.NpmApiService - Fetched access list 'Meine Liste' (ID 1) with 2 client(s) and 1 auth user(s).
+[17:42:00 INF] ngxPMIpUpdater.Services.NpmApiService - Access list 'Meine Liste' updated with 3 IP(s).
+[17:42:00 INF] ngxPMIpUpdater.Worker - Update cycle completed. 3 IPs (1 dynamic, 2 static).
+```
+
+Die einzelnen IP-Adressen stehen absichtlich nur auf `Debug`: Heim-IPs sind personenbezogene Daten und
+sollen nicht dauerhaft in den Container-Logs liegen. Zum Nachvollziehen einer Änderung genügt
+`"MinimumLevel": { "Default": "Debug" }` in der Serilog-Konfiguration.
+
+Hat sich nichts geändert, wird kein PUT gesendet – das erspart NPM einen nginx-Reload pro Stunde:
+
+```
+[18:42:00 INF] ngxPMIpUpdater.Services.NpmApiService - Access list 'Meine Liste' already holds the target 3 IP(s) – skipping update.
 ```

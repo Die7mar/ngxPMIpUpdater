@@ -2,18 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace ngxPMIpUpdater.Models;
 
-public class NpmTokenRequest
-{
-    [JsonPropertyName("identity")]
-    public string Identity { get; set; } = string.Empty;
-
-    [JsonPropertyName("secret")]
-    public string Secret { get; set; } = string.Empty;
-
-    [JsonPropertyName("scope")]
-    public string Scope { get; set; } = "user";
-}
-
 public class NpmTokenResponse
 {
     [JsonPropertyName("token")]
@@ -41,13 +29,21 @@ public class NpmAccessList
     public List<NpmClientEntry> Clients { get; set; } = [];
 }
 
+/// <summary>
+/// A basic-auth user of the access list. Read-only for us: we never send items back on PUT, because NPM
+/// deletes and recreates all auth users whenever the "items" field is present in the request body.
+/// </summary>
 public class NpmAuthItem
 {
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
     [JsonPropertyName("username")]
     public string Username { get; set; } = string.Empty;
 
-    [JsonPropertyName("password")]
-    public string Password { get; set; } = string.Empty;
+    /// <summary>Password hint returned by NPM – the password itself is never exposed by the API.</summary>
+    [JsonPropertyName("hint")]
+    public string Hint { get; set; } = string.Empty;
 }
 
 public class NpmClientEntry

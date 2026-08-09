@@ -8,15 +8,16 @@ services:
     environment:
       - AppSettings__IntervalMinutes=${INTERVAL_MINUTES}
 
-      # Domains
-      - AppSettings__Domains__0=${DOMAIN_0}
-      - AppSettings__Domains__1=${DOMAIN_1}
-      - AppSettings__Domains__2=${DOMAIN_2}
+      # Domains – beliebig viele, mit Komma getrennt
+      - AppSettings__Domains__0=${DOMAINS}
 
-      # Statische IP-Blöcke
-      - AppSettings__StaticIpBlocks__0=${STATIC_IP_0}
-      - AppSettings__StaticIpBlocks__1=${STATIC_IP_1}
-      - AppSettings__StaticIpBlocks__2=${STATIC_IP_2}
+      # Statische IP-Blöcke – beliebig viele, mit Komma getrennt
+      - AppSettings__StaticIpBlocks__0=${STATIC_IPS}
+      - AppSettings__AllowOpenBlocks=${ALLOW_OPEN_BLOCKS:-false}
+
+      # AAAA-Records mitnehmen (als /128). Standard aus – Privacy Extensions lassen
+      # eine /128-Regel bei vielen Heimanschlüssen schnell veralten.
+      - AppSettings__ResolveIPv6=${RESOLVE_IPV6:-false}
 
       # NPM Verbindung
       - AppSettings__Npm__BaseUrl=${NPM_BASE_URL}
@@ -24,3 +25,23 @@ services:
       - AppSettings__Npm__Email=${NPM_EMAIL}
       - AppSettings__Npm__Password=${NPM_PASSWORD}
       - AppSettings__Npm__AccessListId=${NPM_ACCESS_LIST_ID}
+
+      # Sicherer als NPM_API_TOKEN: Umgebungsvariablen sind über "docker inspect" und
+      # /proc/<pid>/environ für jeden Prozess im Container lesbar. Zum Aktivieren den
+      # secrets-Block unten einkommentieren und NPM_API_TOKEN leer lassen.
+      # - AppSettings__Npm__ApiTokenFile=/run/secrets/npm_api_token
+
+    # Speichert die letzten erfolgreich aufgelösten IPs. Ohne dieses Volume verliert der
+    # Aussperr-Schutz bei einem Container-Restart seine Historie.
+    volumes:
+      - ngx-pm-ip-updater-state:/data
+
+    # secrets:
+    #   - npm_api_token
+
+volumes:
+  ngx-pm-ip-updater-state:
+
+# secrets:
+#   npm_api_token:
+#     file: ./secrets/npm_api_token

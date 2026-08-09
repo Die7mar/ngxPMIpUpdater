@@ -1,5 +1,6 @@
 # Secrets – niemals committen!
 .env
+secrets/
 
 # Build-Artefakte
 **/bin/

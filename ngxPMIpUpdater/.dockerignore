@@ -1,0 +1,13 @@
+# Build-Artefakte des Hosts – würden den Restore im Image überschreiben
+bin/
+obj/
+
+# Secrets und lokale Konfiguration gehören nie in Image-Layer
+.env
+appsettings.Development.json
+Properties/launchSettings.json
+
+# IDE
+*.user
+.vs/
+.idea/

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using ngxPMIpUpdater.Models;
@@ -10,7 +11,7 @@ public class NpmApiService(HttpClient httpClient, ILogger<NpmApiService> logger)
     private string? _sessionToken;
     private DateTime _sessionTokenExpiry = DateTime.MinValue;
 
-    private async Task EnsureAuthenticatedAsync(NpmSettings settings)
+    private async Task EnsureAuthenticatedAsync(NpmSettings settings, CancellationToken cancellationToken)
     {
         // Prefer long-lived API token (NPM v2.13+) – no login needed
         if (!string.IsNullOrWhiteSpace(settings.ApiToken))
@@ -33,11 +34,12 @@ public class NpmApiService(HttpClient httpClient, ILogger<NpmApiService> logger)
         // Note: do NOT send "scope" – newer NPM versions return 400 if an unknown field is present
         var response = await httpClient.PostAsJsonAsync(
             $"{settings.BaseUrl.TrimEnd('/')}/api/tokens",
-            new { identity = settings.Email, secret = settings.Password });
+            new { identity = settings.Email, secret = settings.Password },
+            cancellationToken);
 
-        await EnsureSuccessOrLogAsync(response, "POST /api/tokens");
+        await EnsureSuccessOrLogAsync(response, "POST /api/tokens", cancellationToken);
 
-        var tokenResponse = await response.Content.ReadFromJsonAsync<NpmTokenResponse>()
+        var tokenResponse = await response.Content.ReadFromJsonAsync<NpmTokenResponse>(cancellationToken)
             ?? throw new InvalidOperationException("Empty token response from NPM.");
 
         _sessionToken = tokenResponse.Token;
@@ -48,58 +50,132 @@ public class NpmApiService(HttpClient httpClient, ILogger<NpmApiService> logger)
         logger.LogInformation("NPM session authentication successful.");
     }
 
-    public async Task<NpmAccessList> GetAccessListAsync(NpmSettings settings)
+    public async Task<NpmAccessList> GetAccessListAsync(NpmSettings settings,
+        CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(settings);
+        // "expand" is required – without it NPM omits items/clients entirely (see backend/internal/access-list.js)
+        var url = $"{settings.BaseUrl.TrimEnd('/')}/api/nginx/access-lists/{settings.AccessListId}"
+                  + "?expand=items,clients";
 
-        var response = await httpClient.GetAsync(
-            $"{settings.BaseUrl.TrimEnd('/')}/api/nginx/access-lists/{settings.AccessListId}");
+        var response = await SendWithAuthRetryAsync(
+            settings,
+            () => httpClient.GetAsync(url, cancellationToken),
+            $"GET /api/nginx/access-lists/{settings.AccessListId}",
+            cancellationToken);
 
-        await EnsureSuccessOrLogAsync(response, $"GET /api/nginx/access-lists/{settings.AccessListId}");
-
-        var list = await response.Content.ReadFromJsonAsync<NpmAccessList>()
+        var list = await response.Content.ReadFromJsonAsync<NpmAccessList>(cancellationToken)
             ?? throw new InvalidOperationException("NPM returned null access list.");
 
-        logger.LogInformation("Fetched access list '{Name}' (ID {Id}) with {Count} client(s).",
-            list.Name, list.Id, list.Clients.Count);
+        logger.LogInformation(
+            "Fetched access list '{Name}' (ID {Id}) with {ClientCount} client(s) and {ItemCount} auth user(s).",
+            list.Name, list.Id, list.Clients.Count, list.Items.Count);
 
         return list;
     }
 
     public async Task UpdateAccessListAsync(NpmSettings settings, NpmAccessList accessList,
-        List<string> newCidrAddresses)
+        List<string> newCidrAddresses, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(settings);
+        var newClients = newCidrAddresses
+            .Select(addr => new NpmClientEntry { Address = addr, Directive = "allow" })
+            .ToList();
 
-        // NPM's PUT schema does NOT accept "id" or other read-only fields – send only what's needed
+        if (IsUnchanged(accessList.Clients, newClients))
+        {
+            logger.LogInformation("Access list '{Name}' already holds the target {Count} IP(s) – skipping update.",
+                accessList.Name, newClients.Count);
+            logger.LogDebug("Unchanged IPs: {IPs}", string.Join(", ", newCidrAddresses));
+            return;
+        }
+
+        // NPM's PUT schema does NOT accept "id" or other read-only fields – send only what's needed.
+        //
+        // "items" is deliberately omitted: NPM's update() deletes and recreates auth items whenever the
+        // field is present, so sending it would wipe every basic-auth user of the access list. Leaving it
+        // out keeps them untouched.
         var putBody = new
         {
             name        = accessList.Name,
             satisfy_any = accessList.SatisfyAny,
             pass_auth   = accessList.PassAuth,
-            items       = accessList.Items,
-            clients     = newCidrAddresses
-                            .Select(addr => new { address = addr, directive = "allow" })
+            clients     = newClients
+                            .Select(c => new { address = c.Address, directive = c.Directive })
                             .ToList()
         };
 
-        var response = await httpClient.PutAsJsonAsync(
-            $"{settings.BaseUrl.TrimEnd('/')}/api/nginx/access-lists/{settings.AccessListId}",
-            putBody);
+        var url = $"{settings.BaseUrl.TrimEnd('/')}/api/nginx/access-lists/{settings.AccessListId}";
 
-        await EnsureSuccessOrLogAsync(response, $"PUT /api/nginx/access-lists/{settings.AccessListId}");
+        await SendWithAuthRetryAsync(
+            settings,
+            () => httpClient.PutAsJsonAsync(url, putBody, cancellationToken),
+            $"PUT /api/nginx/access-lists/{settings.AccessListId}",
+            cancellationToken);
 
-        logger.LogInformation("Access list '{Name}' updated with {Count} IP(s): {IPs}",
-            accessList.Name, newCidrAddresses.Count, string.Join(", ", newCidrAddresses));
+        logger.LogInformation("Access list '{Name}' updated with {Count} IP(s).",
+            accessList.Name, newCidrAddresses.Count);
+        logger.LogDebug("Written IPs: {IPs}", string.Join(", ", newCidrAddresses));
+    }
+
+    /// <summary>
+    /// Compares current and target clients as order-insensitive sets. Deliberately strict: a false "equal"
+    /// would suppress a needed update and could lock the operator out, while a false "different" only costs
+    /// one nginx reload.
+    /// </summary>
+    private static bool IsUnchanged(List<NpmClientEntry> current, List<NpmClientEntry> target)
+    {
+        var currentSet = current.Select(c => $"{c.Directive} {c.Address}").ToHashSet();
+        var targetSet  = target.Select(c => $"{c.Directive} {c.Address}").ToHashSet();
+
+        return currentSet.SetEquals(targetSet) && currentSet.Count == current.Count;
+    }
+
+    /// <summary>
+    /// Sends a request, retrying once after re-authenticating if NPM answers 401. Takes a factory rather
+    /// than a request because an <see cref="HttpRequestMessage"/> cannot be sent twice.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendWithAuthRetryAsync(NpmSettings settings,
+        Func<Task<HttpResponseMessage>> send, string endpoint, CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(settings, cancellationToken);
+
+        var response = await send();
+        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        {
+            await EnsureSuccessOrLogAsync(response, endpoint, cancellationToken);
+            return response;
+        }
+
+        // A static token that gets rejected will be rejected again – retrying only hides the real cause.
+        if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+        {
+            logger.LogError(
+                "NPM rejected the API token on {Endpoint} (HTTP 401). The token is most likely revoked or "
+                + "wrong – recreate it in the NPM UI under Access → API Tokens.", endpoint);
+            await EnsureSuccessOrLogAsync(response, endpoint, cancellationToken);
+            return response;
+        }
+
+        logger.LogWarning("NPM returned 401 on {Endpoint}; re-authenticating and retrying once.", endpoint);
+
+        _sessionToken = null;
+        _sessionTokenExpiry = DateTime.MinValue;
+        httpClient.DefaultRequestHeaders.Authorization = null;
+
+        await EnsureAuthenticatedAsync(settings, cancellationToken);
+
+        var retry = await send();
+        await EnsureSuccessOrLogAsync(retry, $"{endpoint} (retry)", cancellationToken);
+        return retry;
     }
 
     /// <summary>Throws if the response is not successful, logging the NPM error body first.</summary>
-    private async Task EnsureSuccessOrLogAsync(HttpResponseMessage response, string endpoint)
+    private async Task EnsureSuccessOrLogAsync(HttpResponseMessage response, string endpoint,
+        CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode)
             return;
 
-        var body = await response.Content.ReadAsStringAsync();
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
         logger.LogError("NPM API error on {Endpoint}: HTTP {Status} – {Body}",
             endpoint, (int)response.StatusCode, body);
 
