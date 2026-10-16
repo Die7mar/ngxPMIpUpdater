@@ -80,9 +80,10 @@ public class NpmApiServiceTests
     {
         var handler = new FakeHandler().Respond(HttpStatusCode.OK);
 
-        await CreateService(handler).UpdateAccessListAsync(
+        var written = await CreateService(handler).UpdateAccessListAsync(
             TokenSettings(), AccessList("1.1.1.1/32"), Allow("2.2.2.2/32", "10.0.0.0/8"));
 
+        Assert.True(written);
         var request = Assert.Single(handler.Requests);
         Assert.Equal(HttpMethod.Put, request.Method);
         Assert.Equal($"{BaseUrl}/api/nginx/access-lists/3", request.Url);
@@ -102,9 +103,10 @@ public class NpmApiServiceTests
     {
         var handler = new FakeHandler();
 
-        await CreateService(handler).UpdateAccessListAsync(
+        var written = await CreateService(handler).UpdateAccessListAsync(
             TokenSettings(), AccessList("1.1.1.1/32", "2.2.2.2/32"), Allow("2.2.2.2/32", "1.1.1.1/32"));
 
+        Assert.False(written);
         Assert.Empty(handler.Requests);
     }
 

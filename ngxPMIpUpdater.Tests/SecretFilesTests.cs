@@ -58,4 +58,29 @@ public class SecretFilesTests : IDisposable
         var ex = Assert.Throws<InvalidOperationException>(() => SecretFiles.Resolve(settings));
         Assert.Contains("empty", ex.Message);
     }
+
+    [Fact]
+    public void Resolve_ReadsNotificationTokenFile()
+    {
+        File.WriteAllText(_dir.File("ntfy"), "tk_file\n");
+        var settings = new AppSettings
+        {
+            Notifications = new NotificationSettings { Token = "env", TokenFile = _dir.File("ntfy") }
+        };
+
+        SecretFiles.Resolve(settings);
+
+        Assert.Equal("tk_file", settings.Notifications.Token);
+    }
+
+    [Fact]
+    public void Resolve_ReadsNotificationUrlFile()
+    {
+        File.WriteAllText(_dir.File("discord"), "https://discord.com/api/webhooks/123/secret\n");
+        var settings = new AppSettings { Notifications = new NotificationSettings { UrlFile = _dir.File("discord") } };
+
+        SecretFiles.Resolve(settings);
+
+        Assert.Equal("https://discord.com/api/webhooks/123/secret", settings.Notifications.Url);
+    }
 }

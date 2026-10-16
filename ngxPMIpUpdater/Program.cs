@@ -4,6 +4,10 @@ using ngxPMIpUpdater.Models;
 using ngxPMIpUpdater.Services;
 using Serilog;
 
+// Docker HEALTHCHECK entry point – deliberately before any host or logging setup, so it stays fast
+if (args is ["--healthcheck"])
+    return HealthMonitor.Check(HealthMonitor.DefaultPath, DateTimeOffset.UtcNow, Console.Out);
+
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
     .CreateBootstrapLogger();
@@ -27,7 +31,10 @@ try
 
     // The default of 100 s blocks a whole cycle when NPM hangs
     builder.Services.AddHttpClient<NpmApiService>(client => client.Timeout = TimeSpan.FromSeconds(30));
+    // Notifications must never hold up a cycle for long
+    builder.Services.AddHttpClient<Notifier>(client => client.Timeout = TimeSpan.FromSeconds(10));
     builder.Services.AddSingleton(TimeProvider.System);
+    builder.Services.AddSingleton<HealthMonitor>();
     builder.Services.AddSingleton<IpValidator>();
     builder.Services.AddSingleton<LastKnownIpStore>();
     builder.Services.AddSingleton<DnsResolverService>();

@@ -79,6 +79,26 @@ public class AppSettingsValidatorTests
         Assert.Contains(Errors(settings), e => e.Contains("FallbackMaxAgeHours"));
     }
 
+    [Theory]
+    [InlineData("ntfy.sh/topic", "ntfy")]
+    [InlineData("https://ntfy.sh/topic", "telegram")]
+    public void Validate_InvalidNotifications_Fails(string url, string type)
+    {
+        var settings = Valid();
+        settings.Notifications = new NotificationSettings { Url = url, Type = type };
+
+        Assert.Contains(Errors(settings), e => e.Contains("Notifications"));
+    }
+
+    [Fact]
+    public void Validate_NotificationTypeIsCaseInsensitive()
+    {
+        var settings = Valid();
+        settings.Notifications = new NotificationSettings { Url = "https://gotify.example.com/message", Type = "Gotify" };
+
+        Assert.Empty(Errors(settings));
+    }
+
     [Fact]
     public void Validate_ReportsAllErrorsAtOnce()
     {

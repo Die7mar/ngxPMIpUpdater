@@ -38,6 +38,18 @@ public class AppSettingsValidator : IValidateOptions<AppSettings>
         if (settings.FallbackMaxAgeHours < 0)
             errors.Add("FallbackMaxAgeHours must be 0 (unlimited) or greater.");
 
+        var notifications = settings.Notifications;
+        if (!string.IsNullOrWhiteSpace(notifications.Url))
+        {
+            if (!Uri.TryCreate(notifications.Url, UriKind.Absolute, out var notifyUri)
+                || (notifyUri.Scheme != Uri.UriSchemeHttp && notifyUri.Scheme != Uri.UriSchemeHttps))
+                errors.Add("Notifications:Url is not an absolute http(s) URL."); // not echoed: may hold a secret
+
+            if (!Notifier.SupportedTypes.Contains(notifications.Type, StringComparer.OrdinalIgnoreCase))
+                errors.Add($"Notifications:Type '{notifications.Type}' is not supported. "
+                           + $"Use one of: {string.Join(", ", Notifier.SupportedTypes)}.");
+        }
+
         return errors.Count > 0
             ? ValidateOptionsResult.Fail(errors)
             : ValidateOptionsResult.Success;

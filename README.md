@@ -114,6 +114,39 @@ eine Komma-Liste sein – beides landet in derselben flachen Liste.
 | `Npm.Password` | Passwort – nur wenn kein ApiToken gesetzt (ältere NPM-Versionen) |
 | `Npm.PasswordFile` | Pfad zu einer Datei mit dem Passwort. Überschreibt `Password`. |
 | `Npm.AccessListId` | ID der zu aktualisierenden NPM Access List |
+| `Notifications.Url` | Ziel für Benachrichtigungen (leer = aus), z. B. `https://ntfy.sh/mein-topic` |
+| `Notifications.UrlFile` | Pfad zu einer Datei mit der URL. Überschreibt `Url` – gedacht für Discord, wo die URL selbst das Geheimnis ist. |
+| `Notifications.Type` | `ntfy` (Standard), `gotify`, `discord` oder `json` |
+| `Notifications.Token` | ntfy-Access-Token (`Authorization: Bearer`) bzw. Gotify-App-Token (`X-Gotify-Key`) |
+| `Notifications.TokenFile` | Pfad zu einer Datei mit dem Token. Überschreibt `Token`. |
+| `Notifications.NotifyOnChange` | Auch bei jeder normalen Änderung melden (Standard: `true`) |
+
+### Benachrichtigungen
+
+Optional meldet der Dienst sich per Push – an [ntfy](https://ntfy.sh), [Gotify](https://gotify.net),
+einen Discord-Channel oder einen beliebigen Endpunkt, der einen JSON-POST (`title`, `message`, `level`,
+`source`) annimmt:
+
+| Ereignis | Priorität | abschaltbar |
+|----------|-----------|-------------|
+| Access List geändert (neue DynDNS-IP) | normal | `NotifyOnChange=false` |
+| Liste auf **`deny all`** gesperrt | höchste | nein |
+| Sperre aufgehoben | normal | nein |
+| Seit Ablauf der Health-Frist kein erfolgreicher Zyklus | hoch | nein |
+| Wieder erfolgreich nach einem Ausfall | normal | nein |
+
+Ein einzelner fehlgeschlagener Zyklus löst noch nichts aus – der Retry nach 5 Minuten behebt das meist.
+Gemeldet wird erst, wenn der Container auch laut Healthcheck `unhealthy` wird (siehe unten), und dann nur
+einmal bis zur Erholung.
+
+**Discord:** Im Channel unter *Einstellungen → Integrationen → Webhooks* einen Webhook anlegen und dessen URL
+als `Url` mit `Type=discord` eintragen. Die Nachricht kommt als farbiges Embed (grün/orange/rot je nach
+Dringlichkeit). Die Webhook-URL **ist** das Zugangsgeheimnis – wer sie kennt, kann in den Channel posten.
+Sie gehört darum besser in ein Secret-File (`UrlFile`) als in eine Umgebungsvariable.
+
+Die Nachrichten enthalten **nur Anzahlen, keine IP-Adressen** – auf einem öffentlichen Server wie ntfy.sh
+landen sonst Heim-IPs bei einem Dritten. Ein nicht erreichbarer Push-Dienst wird geloggt, bricht aber nie
+ein Update ab.
 
 ### Secrets sicher übergeben
 
@@ -185,6 +218,20 @@ docker run -d \
 Der Container läuft als **non-root** (UID 1654). Das Volume auf `/data` ist kein Muss, aber ohne es
 verliert der Aussperr-Schutz bei jedem Restart seine Historie – der Dienst warnt dann einmalig im Log.
 
+### Healthcheck
+
+Das Image bringt einen `HEALTHCHECK` mit. Nach jedem erfolgreichen Zyklus schreibt der Dienst eine Frist von
+**2 × `IntervalMinutes` + 5 Minuten**; vergeht sie ohne Erfolg (Token widerrufen, NPM nicht erreichbar, DNS
+dauerhaft kaputt), meldet der Container `unhealthy`:
+
+```bash
+docker ps                      # STATUS: Up 3 hours (healthy)
+docker inspect --format '{{json .State.Health}}' ngx-pm-ip-updater
+```
+
+Der Check ruft nur `dotnet ngxPMIpUpdater.dll --healthcheck` auf und prüft die Frist-Datei – kein
+HTTP-Port, kein curl im Image. Uptime Kuma, Portainer oder `autoheal` können den Status direkt auswerten.
+
 ### Mit docker-compose
 
 ```yaml
@@ -243,9 +290,12 @@ ngxPMIpUpdater/
 │   ├── ClientRules.cs          # Ziel-Regeln der Access List (inkl. deny-all-Sperre)
 │   ├── ConfigList.cs           # Komma-Listen und JSON-Arrays vereinheitlichen
 │   ├── DnsResolverService.cs   # DNS-Auflösung → CIDR
+│   ├── ChangeNotification.cs   # Änderung der Access List → Benachrichtigungstext
 │   ├── DynamicIpCollector.cs   # DNS-Ergebnisse + Fallback auf letzte gute IPs (mit Ablaufzeit)
+│   ├── HealthMonitor.cs        # Frist-Datei für den Docker-Healthcheck, Ausfall-Erkennung
 │   ├── IpValidator.cs          # Prüft/normalisiert alles, was zur allow-Regel wird
 │   ├── LastKnownIpStore.cs     # Letzte gute IPs pro Domain (Aussperr-Schutz)
+│   ├── Notifier.cs             # Push an ntfy / Gotify / JSON-Webhook
 │   ├── NpmApiService.cs        # NPM REST API (Login, GET/PUT Access List)
 │   └── SecretFiles.cs          # Docker-Secrets: *File-Einstellungen einlesen
 ├── Worker.cs                # Hintergrund-Worker-Loop

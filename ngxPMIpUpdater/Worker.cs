@@ -10,7 +10,9 @@ public class Worker(
     DnsResolverService dnsResolver,
     IpValidator ipValidator,
     DynamicIpCollector dynamicIps,
-    NpmApiService npmApi) : BackgroundService
+    NpmApiService npmApi,
+    HealthMonitor health,
+    Notifier notifier) : BackgroundService
 {
     private readonly AppSettings _settings = options.Value;
 
@@ -25,6 +27,10 @@ public class Worker(
         while (!stoppingToken.IsCancellationRequested)
         {
             var completed = await RunUpdateCycleAsync(stoppingToken);
+            if (stoppingToken.IsCancellationRequested)
+                break;
+
+            await ReportHealthAsync(completed, stoppingToken);
 
             var interval = TimeSpan.FromMinutes(_settings.IntervalMinutes);
             var delay = completed ? interval : Min(RetryDelay, interval);
@@ -83,7 +89,12 @@ public class Worker(
                 logger.LogDebug("Static IP blocks included: {Blocks}", string.Join(", ", staticBlocks));
 
             var accessList = await npmApi.GetAccessListAsync(_settings.Npm, cancellationToken);
-            await npmApi.UpdateAccessListAsync(_settings.Npm, accessList, clients, cancellationToken);
+            var before = accessList.Clients.ToList();
+            var written = await npmApi.UpdateAccessListAsync(_settings.Npm, accessList, clients, cancellationToken);
+
+            if (written && ChangeNotification.Describe(accessList.Name, before, clients, expiredDomains,
+                    notifier.NotifyOnChange) is { } change)
+                await notifier.SendAsync(change.Level, change.Title, change.Message, cancellationToken);
 
             logger.LogInformation("Update cycle completed. {Count} rule(s) ({Dynamic} dynamic, {Static} static).",
                 clients.Count, resolvedIps.Count, staticBlocks.Count);
@@ -100,6 +111,30 @@ public class Worker(
             logger.LogError(ex, "Error during update cycle.");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Feeds the cycle result into the health check and reports the moment the service turns unhealthy –
+    /// and when it recovers – instead of every single failed attempt, which a retry often fixes.
+    /// </summary>
+    private async Task ReportHealthAsync(bool completed, CancellationToken cancellationToken)
+    {
+        if (completed)
+        {
+            if (health.RecordSuccess())
+                await notifier.SendAsync(NotificationLevel.Info, "Updates working again",
+                    "ngxPMIpUpdater completed an update cycle again.", cancellationToken);
+            return;
+        }
+
+        if (!health.RecordFailure())
+            return;
+
+        var since = health.LastSuccess is { } last ? $"since {last:u}" : "since startup";
+        logger.LogError("No successful update cycle {Since}. The health check now reports unhealthy.", since);
+        await notifier.SendAsync(NotificationLevel.Warning, "Updates failing",
+            $"ngxPMIpUpdater has not completed an update cycle {since}. The access list is not being kept up to "
+            + "date – check the container logs.", cancellationToken);
     }
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;

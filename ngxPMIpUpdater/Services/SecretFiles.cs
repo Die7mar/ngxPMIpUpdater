@@ -16,6 +16,12 @@ public static class SecretFiles
 
         if (Read(settings.Npm.PasswordFile, "Npm:PasswordFile") is { } password)
             settings.Npm.Password = password;
+
+        if (Read(settings.Notifications.UrlFile, "Notifications:UrlFile") is { } notificationUrl)
+            settings.Notifications.Url = notificationUrl;
+
+        if (Read(settings.Notifications.TokenFile, "Notifications:TokenFile") is { } notificationToken)
+            settings.Notifications.Token = notificationToken;
     }
 
     /// <summary>

@@ -29,10 +29,18 @@ services:
       - AppSettings__Npm__Password=${NPM_PASSWORD}
       - AppSettings__Npm__AccessListId=${NPM_ACCESS_LIST_ID:-0}
 
+      # Benachrichtigungen (optional) – leer lassen zum Deaktivieren
+      - AppSettings__Notifications__Url=${NOTIFY_URL:-}
+      - AppSettings__Notifications__Type=${NOTIFY_TYPE:-ntfy}
+      - AppSettings__Notifications__Token=${NOTIFY_TOKEN:-}
+      - AppSettings__Notifications__NotifyOnChange=${NOTIFY_ON_CHANGE:-true}
+
       # Sicherer als NPM_API_TOKEN: Umgebungsvariablen sind über "docker inspect" und
       # /proc/<pid>/environ für jeden Prozess im Container lesbar. Zum Aktivieren den
       # secrets-Block unten einkommentieren und NPM_API_TOKEN leer lassen.
       # - AppSettings__Npm__ApiTokenFile=/run/secrets/npm_api_token
+      # Dasselbe für eine Discord-Webhook-URL (enthält ihr eigenes Geheimnis); NOTIFY_URL dann leer lassen:
+      # - AppSettings__Notifications__UrlFile=/run/secrets/notify_url
 
     # Speichert die letzten erfolgreich aufgelösten IPs. Ohne dieses Volume verliert der
     # Aussperr-Schutz bei einem Container-Restart seine Historie.
@@ -45,6 +53,7 @@ services:
 
     # secrets:
     #   - npm_api_token
+    #   - notify_url
 
 volumes:
   ngx-pm-ip-updater-state:
@@ -57,3 +66,5 @@ networks:
 # secrets:
 #   npm_api_token:
 #     file: ./secrets/npm_api_token
+#   notify_url:
+#     file: ./secrets/notify_url

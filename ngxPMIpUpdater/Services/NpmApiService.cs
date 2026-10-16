@@ -73,7 +73,8 @@ public class NpmApiService(HttpClient httpClient, ILogger<NpmApiService> logger)
         return list;
     }
 
-    public async Task UpdateAccessListAsync(NpmSettings settings, NpmAccessList accessList,
+    /// <summary>Writes the target clients. Returns false if the list already held them and nothing was sent.</summary>
+    public async Task<bool> UpdateAccessListAsync(NpmSettings settings, NpmAccessList accessList,
         List<NpmClientEntry> newClients, CancellationToken cancellationToken = default)
     {
         var rules = string.Join(", ", newClients.Select(c => $"{c.Directive} {c.Address}"));
@@ -83,7 +84,7 @@ public class NpmApiService(HttpClient httpClient, ILogger<NpmApiService> logger)
             logger.LogInformation("Access list '{Name}' already holds the target {Count} rule(s) – skipping update.",
                 accessList.Name, newClients.Count);
             logger.LogDebug("Unchanged rules: {Rules}", rules);
-            return;
+            return false;
         }
 
         // NPM's PUT schema does NOT accept "id" or other read-only fields – send only what's needed.
@@ -112,6 +113,7 @@ public class NpmApiService(HttpClient httpClient, ILogger<NpmApiService> logger)
         logger.LogInformation("Access list '{Name}' updated with {Count} rule(s).",
             accessList.Name, newClients.Count);
         logger.LogDebug("Written rules: {Rules}", rules);
+        return true;
     }
 
     /// <summary>

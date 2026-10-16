@@ -35,6 +35,44 @@ public class AppSettings
     /// their IPv6 interface ID via privacy extensions, which makes a /128 rule go stale quickly.
     /// </summary>
     public bool ResolveIPv6 { get; set; }
+
+    public NotificationSettings Notifications { get; set; } = new();
+}
+
+/// <summary>
+/// Optional push notifications. Without <see cref="Url"/> nothing is sent.
+/// </summary>
+public class NotificationSettings
+{
+    /// <summary>
+    /// Target URL, e.g. "https://ntfy.sh/my-topic", "https://gotify.example.com/message" or any endpoint
+    /// that accepts a JSON POST. For Discord this is the webhook URL, which contains its secret.
+    /// </summary>
+    public string? Url { get; set; }
+
+    /// <summary>
+    /// Path to a file holding <see cref="Url"/>. Meant for Discord, whose webhook URL is the credential.
+    /// Overrides <see cref="Url"/> when set.
+    /// </summary>
+    public string? UrlFile { get; set; }
+
+    /// <summary>"ntfy" (default), "gotify", "discord" or "json".</summary>
+    public string Type { get; set; } = "ntfy";
+
+    /// <summary>
+    /// Access token: sent as "Authorization: Bearer" for ntfy/json and as "X-Gotify-Key" for Gotify (the
+    /// app token).
+    /// </summary>
+    public string? Token { get; set; }
+
+    /// <summary>Path to a file holding <see cref="Token"/>, e.g. a Docker secret. Overrides it when set.</summary>
+    public string? TokenFile { get; set; }
+
+    /// <summary>
+    /// Also notify on every regular change of the access list (new DynDNS IP). Lockdown, failures and
+    /// recovery are always reported.
+    /// </summary>
+    public bool NotifyOnChange { get; set; } = true;
 }
 
 public class NpmSettings

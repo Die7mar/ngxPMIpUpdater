@@ -20,4 +20,9 @@ RUN mkdir -p /data && chown $APP_UID:$APP_UID /data
 VOLUME /data
 
 USER $APP_UID
+
+# Meldet "unhealthy", wenn länger als 2 × IntervalMinutes + 5 min kein Zyklus erfolgreich war (z. B. Token
+# widerrufen, NPM nicht erreichbar). Prüft nur eine Frist-Datei – kein HTTP-Endpunkt, kein curl im Image.
+HEALTHCHECK --interval=1m --timeout=10s --start-period=2m --retries=3 \
+    CMD ["dotnet", "ngxPMIpUpdater.dll", "--healthcheck"]
 ENTRYPOINT ["dotnet", "ngxPMIpUpdater.dll"]
