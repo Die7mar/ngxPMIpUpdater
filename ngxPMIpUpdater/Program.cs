@@ -27,17 +27,21 @@ try
 
     // The default of 100 s blocks a whole cycle when NPM hangs
     builder.Services.AddHttpClient<NpmApiService>(client => client.Timeout = TimeSpan.FromSeconds(30));
+    builder.Services.AddSingleton(TimeProvider.System);
     builder.Services.AddSingleton<IpValidator>();
     builder.Services.AddSingleton<LastKnownIpStore>();
     builder.Services.AddSingleton<DnsResolverService>();
+    builder.Services.AddSingleton<DynamicIpCollector>();
     builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
     host.Run();
+    return 0;
 }
 catch (Exception ex)
 {
     Log.Fatal(ex, "Application terminated unexpectedly.");
+    return 1; // non-zero so restart policies and supervisors see the failure
 }
 finally
 {

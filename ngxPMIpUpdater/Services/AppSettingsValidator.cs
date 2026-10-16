@@ -35,6 +35,9 @@ public class AppSettingsValidator : IValidateOptions<AppSettings>
         if (settings.IntervalMinutes <= 0)
             errors.Add("IntervalMinutes must be greater than 0.");
 
+        if (settings.FallbackMaxAgeHours < 0)
+            errors.Add("FallbackMaxAgeHours must be 0 (unlimited) or greater.");
+
         return errors.Count > 0
             ? ValidateOptionsResult.Fail(errors)
             : ValidateOptionsResult.Success;

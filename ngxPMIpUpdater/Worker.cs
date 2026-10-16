@@ -9,7 +9,7 @@ public class Worker(
     IOptions<AppSettings> options,
     DnsResolverService dnsResolver,
     IpValidator ipValidator,
-    LastKnownIpStore lastKnownIps,
+    DynamicIpCollector dynamicIps,
     NpmApiService npmApi) : BackgroundService
 {
     private readonly AppSettings _settings = options.Value;
@@ -63,29 +63,30 @@ public class Worker(
 
             var resolutions = await dnsResolver.ResolveDomainsAsync(domains, cancellationToken);
 
-            if (!TryCollectDynamicIps(resolutions, out var resolvedIps))
+            if (!dynamicIps.TryCollect(resolutions, out var resolvedIps, out var expiredDomains))
                 return false;
 
-            // Merge dynamic IPs with static blocks (deduplicated)
-            var allIps = resolvedIps
-                .Concat(staticBlocks)
-                .Distinct()
-                .ToList();
-
-            if (allIps.Count == 0)
+            var clients = ClientRules.Build(resolvedIps, staticBlocks, expiredDomains);
+            if (clients == null)
             {
                 logger.LogWarning("No IPs resolved and no static blocks configured. Skipping NPM update to avoid locking out all clients.");
                 return false;
             }
 
+            if (clients is [{ Directive: "deny" }])
+                logger.LogError(
+                    "No usable IP left: the last known IP(s) of {Domains} expired and no static blocks are configured. "
+                    + "Locking the access list down to 'deny all' until DNS resolves again.",
+                    string.Join(", ", expiredDomains));
+
             if (staticBlocks.Count > 0)
                 logger.LogDebug("Static IP blocks included: {Blocks}", string.Join(", ", staticBlocks));
 
             var accessList = await npmApi.GetAccessListAsync(_settings.Npm, cancellationToken);
-            await npmApi.UpdateAccessListAsync(_settings.Npm, accessList, allIps, cancellationToken);
+            await npmApi.UpdateAccessListAsync(_settings.Npm, accessList, clients, cancellationToken);
 
-            logger.LogInformation("Update cycle completed. {Count} IPs ({Dynamic} dynamic, {Static} static).",
-                allIps.Count, resolvedIps.Count, staticBlocks.Count);
+            logger.LogInformation("Update cycle completed. {Count} rule(s) ({Dynamic} dynamic, {Static} static).",
+                clients.Count, resolvedIps.Count, staticBlocks.Count);
 
             return true;
         }
@@ -99,49 +100,6 @@ public class Worker(
             logger.LogError(ex, "Error during update cycle.");
             return false;
         }
-    }
-
-    /// <summary>
-    /// Turns per-domain resolution results into the dynamic IP list, falling back to the last known good
-    /// value for domains that did not resolve. Returns false if any domain has no usable address at all –
-    /// writing the list then would silently revoke that domain's access.
-    /// </summary>
-    private bool TryCollectDynamicIps(List<DomainResolution> resolutions, out List<string> resolvedIps)
-    {
-        resolvedIps = [];
-
-        foreach (var resolution in resolutions)
-        {
-            if (resolution.Resolved)
-            {
-                lastKnownIps.Set(resolution.Domain, resolution.Cidrs);
-                resolvedIps.AddRange(resolution.Cidrs);
-                continue;
-            }
-
-            var cached = lastKnownIps.Get(resolution.Domain);
-            if (cached is { Count: > 0 })
-            {
-                logger.LogWarning(
-                    "Domain {Domain} did not resolve – keeping its {Count} last known IP(s) so access is not revoked.",
-                    resolution.Domain, cached.Count);
-                logger.LogDebug("Last known IP(s) for {Domain}: {Ips}",
-                    resolution.Domain, string.Join(", ", cached));
-                resolvedIps.AddRange(cached);
-                continue;
-            }
-
-            logger.LogError(
-                "Aborting update cycle: domain {Domain} did not resolve and has no last known IP. Updating the "
-                + "access list now would remove its access. Check DNS or remove the domain from the configuration.",
-                resolution.Domain);
-
-            resolvedIps = [];
-            return false;
-        }
-
-        resolvedIps = [.. resolvedIps.Distinct()];
-        return true;
     }
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;

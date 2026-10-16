@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ngxPMIpUpdater", "ngxPMIpUpdater\ngxPMIpUpdater.csproj", "{6448EF79-FC76-4D5F-B812-D2C7CD714585}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ngxPMIpUpdater.Tests", "ngxPMIpUpdater.Tests\ngxPMIpUpdater.Tests.csproj", "{478FEC20-BE6C-4E71-B6E0-267644DD301D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,18 @@ Global
 		{6448EF79-FC76-4D5F-B812-D2C7CD714585}.Release|x64.Build.0 = Release|Any CPU
 		{6448EF79-FC76-4D5F-B812-D2C7CD714585}.Release|x86.ActiveCfg = Release|Any CPU
 		{6448EF79-FC76-4D5F-B812-D2C7CD714585}.Release|x86.Build.0 = Release|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Debug|x64.Build.0 = Debug|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Debug|x86.Build.0 = Debug|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Release|x64.ActiveCfg = Release|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Release|x64.Build.0 = Release|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Release|x86.ActiveCfg = Release|Any CPU
+		{478FEC20-BE6C-4E71-B6E0-267644DD301D}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

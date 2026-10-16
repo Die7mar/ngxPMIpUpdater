@@ -74,17 +74,15 @@ public class NpmApiService(HttpClient httpClient, ILogger<NpmApiService> logger)
     }
 
     public async Task UpdateAccessListAsync(NpmSettings settings, NpmAccessList accessList,
-        List<string> newCidrAddresses, CancellationToken cancellationToken = default)
+        List<NpmClientEntry> newClients, CancellationToken cancellationToken = default)
     {
-        var newClients = newCidrAddresses
-            .Select(addr => new NpmClientEntry { Address = addr, Directive = "allow" })
-            .ToList();
+        var rules = string.Join(", ", newClients.Select(c => $"{c.Directive} {c.Address}"));
 
         if (IsUnchanged(accessList.Clients, newClients))
         {
-            logger.LogInformation("Access list '{Name}' already holds the target {Count} IP(s) – skipping update.",
+            logger.LogInformation("Access list '{Name}' already holds the target {Count} rule(s) – skipping update.",
                 accessList.Name, newClients.Count);
-            logger.LogDebug("Unchanged IPs: {IPs}", string.Join(", ", newCidrAddresses));
+            logger.LogDebug("Unchanged rules: {Rules}", rules);
             return;
         }
 
@@ -111,9 +109,9 @@ public class NpmApiService(HttpClient httpClient, ILogger<NpmApiService> logger)
             $"PUT /api/nginx/access-lists/{settings.AccessListId}",
             cancellationToken);
 
-        logger.LogInformation("Access list '{Name}' updated with {Count} IP(s).",
-            accessList.Name, newCidrAddresses.Count);
-        logger.LogDebug("Written IPs: {IPs}", string.Join(", ", newCidrAddresses));
+        logger.LogInformation("Access list '{Name}' updated with {Count} rule(s).",
+            accessList.Name, newClients.Count);
+        logger.LogDebug("Written rules: {Rules}", rules);
     }
 
     /// <summary>

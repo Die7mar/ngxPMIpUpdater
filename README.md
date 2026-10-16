@@ -27,6 +27,14 @@ Zweifel bleibt die Access List unangetastet, statt eine unvollständige Liste zu
   `/data/last-known.json` gespeichert. Löst eine Domain nicht auf, wird der letzte gute Wert verwendet.
   Gibt es auch keinen gespeicherten Wert, wird der Zyklus **abgebrochen** – die Access List behält ihren
   Stand, und der nächste Versuch folgt schon nach 5 Minuten statt nach dem vollen Intervall.
+- **Gespeicherte IPs verfallen.** Bestätigt DNS eine Domain länger als `FallbackMaxAgeHours` (Standard: 72 h)
+  nicht mehr, wird ihre alte IP aus der Access List entfernt. Eine DynDNS-Adresse wird nach einer Weile
+  an einen anderen Anschluss vergeben – sie dauerhaft zu erlauben, würde einem Fremden Zugriff geben.
+  Bleibt danach gar keine IP mehr übrig (alle Domains abgelaufen, keine `StaticIpBlocks`), wird die Liste
+  auf **`deny all`** gesetzt statt unverändert gelassen. Eine leere Liste wäre keine Option: NPM schreibt
+  das abschließende `deny all;` nur, wenn mindestens eine Client-Regel existiert – leer hieße offen.
+  Basic-Auth-Benutzer kommen mit „Satisfy Any“ weiterhin rein. Sobald DNS wieder antwortet, wird die
+  Sperre beim nächsten Zyklus automatisch aufgehoben.
 - **Ungültige Einträge werden verworfen, nicht durchgereicht.** Adressen und CIDR-Blöcke werden geprüft und
   normalisiert (inkl. Leerzeichen und gesetzter Host-Bits). Ein fehlerhafter Eintrag wird geloggt und
   übersprungen, statt das gesamte Update scheitern zu lassen.
@@ -97,6 +105,7 @@ eine Komma-Liste sein – beides landet in derselben flachen Liste.
 | `StaticIpBlocks` | Feste IP-Adressen oder CIDR-Blöcke (z. B. internes Netz), die immer erlaubt bleiben. JSON-Array oder Komma-Liste |
 | `AllowOpenBlocks` | Erlaubt `0.0.0.0/0` in `StaticIpBlocks` (Standard: `false`) – öffnet den Proxy fürs ganze Internet |
 | `StateFilePath` | Ablage der letzten erfolgreich aufgelösten IPs (Standard: `/data/last-known.json`) |
+| `FallbackMaxAgeHours` | Wie lange die letzte gute IP einer nicht auflösbaren Domain weiterverwendet wird (Standard: `72`, `0` = unbegrenzt) |
 | `ResolveIPv6` | AAAA-Records ebenfalls als `/128` eintragen (Standard: `false`) |
 | `Npm.BaseUrl` | URL des Nginx Proxy Manager (inkl. Port, ohne `/api`) |
 | `Npm.ApiToken` | **Empfohlen (NPM ≥ v2.13):** Langlebiger API-Token, erstellt im NPM UI unter *Access → API Tokens*. Wenn gesetzt, werden Email/Password ignoriert. |
@@ -191,10 +200,19 @@ services:
     volumes:
       # Bewahrt die letzten guten IPs über einen Restart hinweg (Aussperr-Schutz)
       - ngx-pm-ip-updater-state:/data
+    networks:
+      - npm   # dasselbe Netz wie NPM, sonst ist "nginx-proxy-manager" nicht auflösbar
 
 volumes:
   ngx-pm-ip-updater-state:
+
+networks:
+  npm:
+    external: true
+    name: nginx-proxy-manager_default   # prüfen mit: docker network ls
 ```
+
+Die mitgelieferte `docker-compose.yml` liest den Netzwerknamen aus `NPM_NETWORK_NAME` in der `.env`.
 
 ---
 
@@ -207,6 +225,12 @@ dotnet run
 
 ---
 
+## Tests
+
+```bash
+dotnet test
+```
+
 ## Projektstruktur
 
 ```
@@ -216,8 +240,10 @@ ngxPMIpUpdater/
 │   └── NpmModels.cs         # NPM API Datenmodelle (Token, AccessList, Client)
 ├── Services/
 │   ├── AppSettingsValidator.cs # Startup-Validierung (fail fast)
+│   ├── ClientRules.cs          # Ziel-Regeln der Access List (inkl. deny-all-Sperre)
 │   ├── ConfigList.cs           # Komma-Listen und JSON-Arrays vereinheitlichen
 │   ├── DnsResolverService.cs   # DNS-Auflösung → CIDR
+│   ├── DynamicIpCollector.cs   # DNS-Ergebnisse + Fallback auf letzte gute IPs (mit Ablaufzeit)
 │   ├── IpValidator.cs          # Prüft/normalisiert alles, was zur allow-Regel wird
 │   ├── LastKnownIpStore.cs     # Letzte gute IPs pro Domain (Aussperr-Schutz)
 │   ├── NpmApiService.cs        # NPM REST API (Login, GET/PUT Access List)

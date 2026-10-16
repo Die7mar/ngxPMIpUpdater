@@ -6,7 +6,7 @@ services:
     container_name: ngx-pm-ip-updater
     restart: unless-stopped
     environment:
-      - AppSettings__IntervalMinutes=${INTERVAL_MINUTES}
+      - AppSettings__IntervalMinutes=${INTERVAL_MINUTES:-60}
 
       # Domains – beliebig viele, mit Komma getrennt
       - AppSettings__Domains__0=${DOMAINS}
@@ -19,12 +19,15 @@ services:
       # eine /128-Regel bei vielen Heimanschlüssen schnell veralten.
       - AppSettings__ResolveIPv6=${RESOLVE_IPV6:-false}
 
+      # Wie lange (in Stunden) die letzte gute IP einer Domain bei DNS-Ausfall weiterverwendet wird
+      - AppSettings__FallbackMaxAgeHours=${FALLBACK_MAX_AGE_HOURS:-72}
+
       # NPM Verbindung
       - AppSettings__Npm__BaseUrl=${NPM_BASE_URL}
       - AppSettings__Npm__ApiToken=${NPM_API_TOKEN}
       - AppSettings__Npm__Email=${NPM_EMAIL}
       - AppSettings__Npm__Password=${NPM_PASSWORD}
-      - AppSettings__Npm__AccessListId=${NPM_ACCESS_LIST_ID}
+      - AppSettings__Npm__AccessListId=${NPM_ACCESS_LIST_ID:-0}
 
       # Sicherer als NPM_API_TOKEN: Umgebungsvariablen sind über "docker inspect" und
       # /proc/<pid>/environ für jeden Prozess im Container lesbar. Zum Aktivieren den
@@ -36,11 +39,20 @@ services:
     volumes:
       - ngx-pm-ip-updater-state:/data
 
+    # Muss dasselbe Netz sein, in dem NPM läuft – sonst ist http://nginx-proxy-manager:81 nicht auflösbar
+    networks:
+      - npm
+
     # secrets:
     #   - npm_api_token
 
 volumes:
   ngx-pm-ip-updater-state:
+
+networks:
+  npm:
+    external: true
+    name: ${NPM_NETWORK_NAME:-nginx-proxy-manager_default}
 
 # secrets:
 #   npm_api_token:

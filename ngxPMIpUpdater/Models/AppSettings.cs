@@ -24,6 +24,13 @@ public class AppSettings
     public string StateFilePath { get; set; } = "/data/last-known.json";
 
     /// <summary>
+    /// How long (in hours) the last known IP of a domain that no longer resolves is kept as an allow rule.
+    /// After that it is removed: an old DynDNS address may have been reassigned to someone else.
+    /// 0 keeps it indefinitely (not recommended).
+    /// </summary>
+    public int FallbackMaxAgeHours { get; set; } = 72;
+
+    /// <summary>
     /// Also turn AAAA records into allow rules (as /128). Off by default: many home connections rotate
     /// their IPv6 interface ID via privacy extensions, which makes a /128 rule go stale quickly.
     /// </summary>
