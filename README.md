@@ -16,6 +16,9 @@ Ein .NET Worker Service, der stündlich DNS-Domains auflöst, die ermittelten IP
 
 Der Dienst läuft als endlose Schleife und wiederholt den Vorgang alle `IntervalMinutes` Minuten.
 
+Optional – oder statt NPM – pflegt er dieselben IPs auch in einer **Cloudflare Zero Trust Access Group**,
+für Dienste hinter einem Cloudflare Tunnel (siehe [Cloudflare Tunnel](#cloudflare-tunnel)).
+
 ### Schutzmechanismen
 
 Weil der Dienst die Zugangskontrolle eines Reverse Proxy umschreibt, gilt durchgehend **fail closed** – im
@@ -114,12 +117,65 @@ eine Komma-Liste sein – beides landet in derselben flachen Liste.
 | `Npm.Password` | Passwort – nur wenn kein ApiToken gesetzt (ältere NPM-Versionen) |
 | `Npm.PasswordFile` | Pfad zu einer Datei mit dem Passwort. Überschreibt `Password`. |
 | `Npm.AccessListId` | ID der zu aktualisierenden NPM Access List |
+| `Cloudflare.AccountId` | Cloudflare-Account-ID (32 Zeichen) – setzt man einen `Cloudflare.*`-Wert, wird Cloudflare aktualisiert |
+| `Cloudflare.AccessGroupId` | UUID der Access Group, deren IP-Regeln gepflegt werden |
+| `Cloudflare.ApiToken` | API-Token mit *Access: Organizations, Identity Providers, and Groups → Edit* |
+| `Cloudflare.ApiTokenFile` | Pfad zu einer Datei mit dem Token. Überschreibt `ApiToken`. |
 | `Notifications.Url` | Ziel für Benachrichtigungen (leer = aus), z. B. `https://ntfy.sh/mein-topic` |
 | `Notifications.UrlFile` | Pfad zu einer Datei mit der URL. Überschreibt `Url` – gedacht für Discord, wo die URL selbst das Geheimnis ist. |
 | `Notifications.Type` | `ntfy` (Standard), `gotify`, `discord` oder `json` |
 | `Notifications.Token` | ntfy-Access-Token (`Authorization: Bearer`) bzw. Gotify-App-Token (`X-Gotify-Key`) |
 | `Notifications.TokenFile` | Pfad zu einer Datei mit dem Token. Überschreibt `Token`. |
 | `Notifications.NotifyOnChange` | Auch bei jeder normalen Änderung melden (Standard: `true`) |
+
+Ohne `Npm.BaseUrl` und mit gesetzten `Cloudflare.*`-Werten läuft der Dienst **nur gegen Cloudflare** – die
+`Npm.*`-Felder sind dann nicht nötig.
+
+### Cloudflare Tunnel
+
+Hinter einem Cloudflare Tunnel sieht NPM nur noch die Adresse von `cloudflared`, eine NPM Access List
+filtert dort also nichts mehr. Die Prüfung muss bei Cloudflare passieren. Der Dienst pflegt dafür die
+IP-Regeln einer **Access Group**; die eigentliche Freigabe macht eine Policy, die diese Gruppe verwendet.
+
+**Einrichtung:**
+
+1. **Access Group anlegen:** *Zero Trust → Access → Access Groups → Add a group*, Name z. B. `Heim-IPs`,
+   Include → *IP ranges* mit der aktuellen Heim-IP (wird beim ersten Lauf ersetzt). Die UUID der Gruppe
+   steht in der URL der Gruppe, alternativ liefert sie
+   `GET https://api.cloudflare.com/client/v4/accounts/<account-id>/access/groups`.
+2. **Application absichern:** Für den Tunnel-Hostnamen eine *Self-hosted Application* mit zwei Policies:
+   - **Bypass**, Include → *Access Group* `Heim-IPs` – von zu Hause kommt man ohne Login rein
+   - **Allow**, Include → z. B. *Emails* – alle anderen müssen sich anmelden (z. B. per E-Mail-Code)
+
+   Das entspricht NPMs *Satisfy Any* mit Basic-Auth. Fehlt die Allow-Policy, ist der Dienst von außerhalb
+   der Heim-IPs gar nicht erreichbar.
+3. **API-Token erstellen:** *My Profile → API Tokens → Create Custom Token*, Berechtigung
+   *Account → Access: Organizations, Identity Providers, and Groups → Edit*, auf den eigenen Account beschränkt.
+   Die Account-ID steht in der Dashboard-URL `dash.cloudflare.com/<account-id>/…`.
+
+```bash
+CF_ACCOUNT_ID=0123456789abcdef0123456789abcdef
+CF_ACCESS_GROUP_ID=8d3f1c2a-5b6e-4f70-9a81-2c3d4e5f6a7b
+CF_API_TOKEN=…            # besser als Secret-File, siehe docker-compose.yml
+```
+
+**Was der Dienst ändert – und was nicht:**
+
+- Ersetzt werden **nur die `IP ranges`-Regeln im Include** der Gruppe. Andere Include-Regeln sowie
+  Exclude und Require bleiben unangetastet – wie die Basic-Auth-Benutzer bei NPM.
+- Alle Schutzmechanismen von oben gelten genauso: letzte gute IP bei DNS-Ausfall, Ablauf nach
+  `FallbackMaxAgeHours`, kein Schreiben ohne Änderung.
+- Die **`deny all`-Sperre** schreibt die Regel `255.255.255.255/32`. Cloudflare erlaubt keine Gruppe ohne
+  Include-Regel, und von dieser Adresse kommt nie eine echte Anfrage – die Gruppe passt dann auf niemanden.
+  Die Allow-Policy mit Login greift weiterhin.
+- Mit NPM **und** Cloudflare wird jedes Ziel für sich aktualisiert. Ist Cloudflare nicht erreichbar, bekommt
+  NPM trotzdem die neue IP; der Zyklus gilt aber als fehlgeschlagen und wird nach 5 Minuten wiederholt.
+
+> **IPv6 beachten:** Cloudflare sieht die öffentliche Adresse, mit der der Client Cloudflare erreicht. Hat der
+> Heimanschluss IPv6, ist das meist die IPv6-Adresse – die IPv4 aus dem DynDNS passt dann nicht, und der
+> Bypass greift nicht (Login statt direktem Zugriff). Abhilfe: `RESOLVE_IPV6=true`, wenn der DynDNS-Name
+> einen AAAA-Record hat, oder einen IPv6-Präfix (z. B. das `/56` des Anschlusses) in `STATIC_IPS`.
+> Private Netze wie `192.168.1.0/24` sind für Cloudflare dagegen wirkungslos, aber harmlos.
 
 ### Benachrichtigungen
 
@@ -284,6 +340,7 @@ dotnet test
 ngxPMIpUpdater/
 ├── Models/
 │   ├── AppSettings.cs       # Konfigurationsmodell
+│   ├── CloudflareModels.cs  # Cloudflare Access Group (Roh-JSON, damit nichts verloren geht)
 │   └── NpmModels.cs         # NPM API Datenmodelle (Token, AccessList, Client)
 ├── Services/
 │   ├── AppSettingsValidator.cs # Startup-Validierung (fail fast)
@@ -291,6 +348,7 @@ ngxPMIpUpdater/
 │   ├── ConfigList.cs           # Komma-Listen und JSON-Arrays vereinheitlichen
 │   ├── DnsResolverService.cs   # DNS-Auflösung → CIDR
 │   ├── ChangeNotification.cs   # Änderung der Access List → Benachrichtigungstext
+│   ├── CloudflareApiService.cs # Cloudflare API (GET/PUT Access Group, nur IP-Regeln)
 │   ├── DynamicIpCollector.cs   # DNS-Ergebnisse + Fallback auf letzte gute IPs (mit Ablaufzeit)
 │   ├── HealthMonitor.cs        # Frist-Datei für den Docker-Healthcheck, Ausfall-Erkennung
 │   ├── IpValidator.cs          # Prüft/normalisiert alles, was zur allow-Regel wird

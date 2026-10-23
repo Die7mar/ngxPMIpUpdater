@@ -11,6 +11,7 @@ public class Worker(
     IpValidator ipValidator,
     DynamicIpCollector dynamicIps,
     NpmApiService npmApi,
+    CloudflareApiService cloudflareApi,
     HealthMonitor health,
     Notifier notifier) : BackgroundService
 {
@@ -21,8 +22,10 @@ public class Worker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("ngxPMIpUpdater started. Interval: {Minutes} min, Domains: {Domains}",
-            _settings.IntervalMinutes, string.Join(", ", ConfigList.Flatten(_settings.Domains)));
+        var targets = new[] { _settings.UsesNpm ? "NPM" : null, _settings.UsesCloudflare ? "Cloudflare" : null }
+            .OfType<string>();
+        logger.LogInformation("ngxPMIpUpdater started. Interval: {Minutes} min, Targets: {Targets}, Domains: {Domains}",
+            _settings.IntervalMinutes, string.Join(" + ", targets), string.Join(", ", ConfigList.Flatten(_settings.Domains)));
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -75,7 +78,7 @@ public class Worker(
             var clients = ClientRules.Build(resolvedIps, staticBlocks, expiredDomains);
             if (clients == null)
             {
-                logger.LogWarning("No IPs resolved and no static blocks configured. Skipping NPM update to avoid locking out all clients.");
+                logger.LogWarning("No IPs resolved and no static blocks configured. Skipping the update to avoid locking out all clients.");
                 return false;
             }
 
@@ -88,18 +91,35 @@ public class Worker(
             if (staticBlocks.Count > 0)
                 logger.LogDebug("Static IP blocks included: {Blocks}", string.Join(", ", staticBlocks));
 
-            var accessList = await npmApi.GetAccessListAsync(_settings.Npm, cancellationToken);
-            var before = accessList.Clients.ToList();
-            var written = await npmApi.UpdateAccessListAsync(_settings.Npm, accessList, clients, cancellationToken);
+            // Each target on its own: Cloudflare being down must not keep NPM from getting the new IP
+            var completed = true;
 
-            if (written && ChangeNotification.Describe(accessList.Name, before, clients, expiredDomains,
-                    notifier.NotifyOnChange) is { } change)
-                await notifier.SendAsync(change.Level, change.Title, change.Message, cancellationToken);
+            if (_settings.UsesNpm)
+                completed &= await ApplyToTargetAsync("NPM", async () =>
+                {
+                    var accessList = await npmApi.GetAccessListAsync(_settings.Npm, cancellationToken);
+                    var before = accessList.Clients.ToList();
+                    var written = await npmApi.UpdateAccessListAsync(_settings.Npm, accessList, clients, cancellationToken);
+                    return new TargetUpdate($"Access list '{accessList.Name}'", before, written,
+                        "Basic-auth users can still log in.");
+                }, clients, expiredDomains, cancellationToken);
 
-            logger.LogInformation("Update cycle completed. {Count} rule(s) ({Dynamic} dynamic, {Static} static).",
-                clients.Count, resolvedIps.Count, staticBlocks.Count);
+            if (_settings.UsesCloudflare)
+                completed &= await ApplyToTargetAsync("Cloudflare", async () =>
+                {
+                    var group = await cloudflareApi.GetAccessGroupAsync(_settings.Cloudflare, cancellationToken);
+                    var before = CloudflareApiService.CurrentClients(group);
+                    var written = await cloudflareApi.UpdateAccessGroupAsync(_settings.Cloudflare, group, clients,
+                        cancellationToken);
+                    return new TargetUpdate($"Cloudflare Access group '{group.Name}'", before, written,
+                        "Other Access policies (e.g. login) still apply.");
+                }, clients, expiredDomains, cancellationToken);
 
-            return true;
+            if (completed)
+                logger.LogInformation("Update cycle completed. {Count} rule(s) ({Dynamic} dynamic, {Static} static).",
+                    clients.Count, resolvedIps.Count, staticBlocks.Count);
+
+            return completed;
         }
         catch (OperationCanceledException)
         {
@@ -109,6 +129,33 @@ public class Worker(
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during update cycle.");
+            return false;
+        }
+    }
+
+    private record TargetUpdate(string Description, List<NpmClientEntry> Before, bool Written, string LockdownNote);
+
+    /// <summary>Writes the rules to one target and reports the change. Returns false if that target failed.</summary>
+    private async Task<bool> ApplyToTargetAsync(string target, Func<Task<TargetUpdate>> apply,
+        List<NpmClientEntry> clients, IReadOnlyCollection<string> expiredDomains, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var update = await apply();
+
+            if (update.Written && ChangeNotification.Describe(update.Description, update.Before, clients,
+                    expiredDomains, notifier.NotifyOnChange, update.LockdownNote) is { } change)
+                await notifier.SendAsync(change.Level, change.Title, change.Message, cancellationToken);
+
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Updating {Target} failed.", target);
             return false;
         }
     }

@@ -17,6 +17,9 @@ public static class SecretFiles
         if (Read(settings.Npm.PasswordFile, "Npm:PasswordFile") is { } password)
             settings.Npm.Password = password;
 
+        if (Read(settings.Cloudflare.ApiTokenFile, "Cloudflare:ApiTokenFile") is { } cloudflareToken)
+            settings.Cloudflare.ApiToken = cloudflareToken;
+
         if (Read(settings.Notifications.UrlFile, "Notifications:UrlFile") is { } notificationUrl)
             settings.Notifications.Url = notificationUrl;
 

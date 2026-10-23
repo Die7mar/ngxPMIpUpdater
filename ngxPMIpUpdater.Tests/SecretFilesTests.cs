@@ -83,4 +83,18 @@ public class SecretFilesTests : IDisposable
 
         Assert.Equal("https://discord.com/api/webhooks/123/secret", settings.Notifications.Url);
     }
+
+    [Fact]
+    public void Resolve_ReadsCloudflareTokenFile()
+    {
+        File.WriteAllText(_dir.File("cf"), "cf-file-token\n");
+        var settings = new AppSettings
+        {
+            Cloudflare = new CloudflareSettings { ApiToken = "env", ApiTokenFile = _dir.File("cf") }
+        };
+
+        SecretFiles.Resolve(settings);
+
+        Assert.Equal("cf-file-token", settings.Cloudflare.ApiToken);
+    }
 }

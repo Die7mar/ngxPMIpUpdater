@@ -31,6 +31,7 @@ try
 
     // The default of 100 s blocks a whole cycle when NPM hangs
     builder.Services.AddHttpClient<NpmApiService>(client => client.Timeout = TimeSpan.FromSeconds(30));
+    builder.Services.AddHttpClient<CloudflareApiService>(client => client.Timeout = TimeSpan.FromSeconds(30));
     // Notifications must never hold up a cycle for long
     builder.Services.AddHttpClient<Notifier>(client => client.Timeout = TimeSpan.FromSeconds(10));
     builder.Services.AddSingleton(TimeProvider.System);

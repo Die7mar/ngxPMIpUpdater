@@ -37,6 +37,42 @@ public class AppSettings
     public bool ResolveIPv6 { get; set; }
 
     public NotificationSettings Notifications { get; set; } = new();
+
+    public CloudflareSettings Cloudflare { get; set; } = new();
+
+    /// <summary>
+    /// NPM is updated when its URL is set. Without Cloudflare it is the only target and therefore required –
+    /// validation then reports the missing NPM settings instead of a service that silently does nothing.
+    /// </summary>
+    public bool UsesNpm => !string.IsNullOrWhiteSpace(Npm.BaseUrl) || !UsesCloudflare;
+
+    public bool UsesCloudflare => Cloudflare.IsConfigured;
+}
+
+/// <summary>
+/// Optional second target: a Cloudflare Zero Trust Access group for services behind a Cloudflare Tunnel.
+/// Behind a tunnel NPM only sees cloudflared's address, so the IP check has to happen at Cloudflare.
+/// </summary>
+public class CloudflareSettings
+{
+    /// <summary>Account ID (32 hex characters), shown in the dashboard URL and on the account overview.</summary>
+    public string? AccountId { get; set; }
+
+    /// <summary>ID (UUID) of the Access group whose IP rules are kept in sync.</summary>
+    public string? AccessGroupId { get; set; }
+
+    /// <summary>
+    /// API token with "Account → Access: Organizations, Identity Providers, and Groups → Edit".
+    /// </summary>
+    public string? ApiToken { get; set; }
+
+    /// <summary>Path to a file holding <see cref="ApiToken"/>, e.g. a Docker secret. Overrides it when set.</summary>
+    public string? ApiTokenFile { get; set; }
+
+    /// <summary>Any Cloudflare setting present means "use Cloudflare" – validation then demands the rest.</summary>
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(AccountId) || !string.IsNullOrWhiteSpace(AccessGroupId)
+        || !string.IsNullOrWhiteSpace(ApiToken);
 }
 
 /// <summary>

@@ -3,6 +3,9 @@ services:
     build:
       context: ./ngxPMIpUpdater
       dockerfile: Dockerfile
+      # Basis-Image bei jedem Build neu holen – sonst bleibt ein einmal geladenes .NET-Image
+      # ohne Sicherheitspatches liegen, obwohl das Dockerfile dem gleitenden 10.0-Tag folgt
+      pull: true
     container_name: ngx-pm-ip-updater
     restart: unless-stopped
     environment:
@@ -29,6 +32,11 @@ services:
       - AppSettings__Npm__Password=${NPM_PASSWORD}
       - AppSettings__Npm__AccessListId=${NPM_ACCESS_LIST_ID:-0}
 
+      # Cloudflare Tunnel (optional) – Access Group, deren IP-Regeln gepflegt werden
+      - AppSettings__Cloudflare__AccountId=${CF_ACCOUNT_ID:-}
+      - AppSettings__Cloudflare__AccessGroupId=${CF_ACCESS_GROUP_ID:-}
+      - AppSettings__Cloudflare__ApiToken=${CF_API_TOKEN:-}
+
       # Benachrichtigungen (optional) – leer lassen zum Deaktivieren
       - AppSettings__Notifications__Url=${NOTIFY_URL:-}
       - AppSettings__Notifications__Type=${NOTIFY_TYPE:-ntfy}
@@ -39,6 +47,8 @@ services:
       # /proc/<pid>/environ für jeden Prozess im Container lesbar. Zum Aktivieren den
       # secrets-Block unten einkommentieren und NPM_API_TOKEN leer lassen.
       # - AppSettings__Npm__ApiTokenFile=/run/secrets/npm_api_token
+      # Dasselbe für den Cloudflare-Token; CF_API_TOKEN dann leer lassen:
+      # - AppSettings__Cloudflare__ApiTokenFile=/run/secrets/cf_api_token
       # Dasselbe für eine Discord-Webhook-URL (enthält ihr eigenes Geheimnis); NOTIFY_URL dann leer lassen:
       # - AppSettings__Notifications__UrlFile=/run/secrets/notify_url
 
@@ -47,12 +57,14 @@ services:
     volumes:
       - ngx-pm-ip-updater-state:/data
 
-    # Muss dasselbe Netz sein, in dem NPM läuft – sonst ist http://nginx-proxy-manager:81 nicht auflösbar
+    # Muss dasselbe Netz sein, in dem NPM läuft – sonst ist http://nginx-proxy-manager:81 nicht auflösbar.
+    # Nur mit Cloudflare (ohne NPM) diesen Block und den networks-Block ganz unten entfernen.
     networks:
       - npm
 
     # secrets:
     #   - npm_api_token
+    #   - cf_api_token
     #   - notify_url
 
 volumes:
@@ -66,5 +78,7 @@ networks:
 # secrets:
 #   npm_api_token:
 #     file: ./secrets/npm_api_token
+#   cf_api_token:
+#     file: ./secrets/cf_api_token
 #   notify_url:
 #     file: ./secrets/notify_url

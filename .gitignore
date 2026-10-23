@@ -13,3 +13,5 @@ secrets/
 
 err.txt
 prog.txt
+# Lokale Compose-Anpassungen
+docker-compose.override.yml
